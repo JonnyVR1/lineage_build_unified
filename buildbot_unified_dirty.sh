@@ -18,9 +18,8 @@ then
     exit 1
 fi
 
-NOSYNC=false
+NOSYNC=true
 PERSONAL=false
-SIGNABLE=true
 for var in "${@:2}"
 do
     if [ ${var} == "nosync" ]
@@ -30,14 +29,8 @@ do
     if [ ${var} == "personal" ]
     then
         PERSONAL=true
-        SIGNABLE=false
     fi
 done
-if [ ! -d "$HOME/.android-certs" ]; then
-    read -n1 -r -p $"\$HOME/.android-certs not found - CTRL-C to exit, or any other key to continue"
-    echo ""
-    SIGNABLE=false
-fi
 
 # Abort early on error
 set -eE
@@ -50,7 +43,7 @@ echo\
 )' ERR
 
 START=`date +%s`
-BUILD_DATE="$(date -u +%Y%m%d)"
+BUILD_DATE="$(date +%Y%m%d)"
 mkdir -p release/$BUILD_DATE/
 
 prep_build() {
@@ -66,14 +59,17 @@ prep_build() {
 
     echo "Setting up build environment"
     source build/envsetup.sh &> /dev/null
-    mkdir -p ~/build-output
     echo ""
 
-    repopick -t 13-burnin -r -f
-    repopick -t 13-taro-kalama -r -f
-    repopick 321337 -r -f # Deprioritize important developer notifications
-    repopick 321338 -r -f # Allow disabling important developer notifications
-    repopick 321339 -r -f # Allow disabling USB notifications
+    repopick 321337 -f # Deprioritize important developer notifications
+    repopick 321338 -f # Allow disabling important developer notifications
+    repopick 321339 -f # Allow disabling USB notifications
+    repopick 340916 # SystemUI: add burnIn protection
+    repopick 342860 # codec2: Use numClientBuffers to control the pipeline
+    repopick 342861 # CCodec: Control the inputs to avoid pipeline overflow
+    repopick 342862 # [WA] Codec2: queue a empty work to HAL to wake up allocation thread
+    repopick 342863 # CCodec: Use pipelineRoom only for HW decoder
+    repopick 342864 # codec2: Change a Info print into Verbose
 }
 
 apply_patches() {
@@ -95,18 +91,11 @@ finalize_device() {
 }
 
 finalize_treble() {
+    rm -f device/*/sepolicy/common/private/genfs_contexts
     cd device/phh/treble
     git clean -fdx
     bash generate.sh lineage
     cd ../../..
-    cd treble_app
-    bash build.sh release
-    cp TrebleApp.apk ../vendor/hardware_overlay/TrebleApp/app.apk
-    cd ..
-    cd vendor/hardware_overlay
-    git add TrebleApp/app.apk
-    git commit -m "[TEMP] Up TrebleApp to $BUILD_DATE"
-    cd ../..
 }
 
 build_device() {
@@ -126,17 +115,8 @@ build_treble() {
     esac
     lunch lineage_${TARGET}-userdebug
     make installclean
-    WITH_ADB_INSECURE=true make -j$(lscpu -b -p=Core,Socket | grep -v '^#' | sort -u | wc -l) systemimage
-    SIGNED=false
-    if [ ${SIGNABLE} = true ] && [[ ${TARGET} == *_bg? ]]
-    then
-        WITH_ADB_INSECURE=true make -j$(lscpu -b -p=Core,Socket | grep -v '^#' | sort -u | wc -l) target-files-package otatools
-        bash ./lineage_build_unified/sign_target_files.sh $OUT/signed-target_files.zip
-        unzip -joq $OUT/signed-target_files.zip IMAGES/system.img -d $OUT
-        SIGNED=true
-        echo ""
-    fi
-    mv $OUT/system.img ~/build-output/lineage-20.0-$BUILD_DATE-UNOFFICIAL-${TARGET}$(${PERSONAL} && echo "-personal" || echo "")$(${SIGNED} && echo "-signed" || echo "").img
+    make RELAX_USES_LIBRARY_CHECK=true -j8 systemimage
+    xz -c $OUT/system.img -T0 > release/$BUILD_DATE/lineage-20.0-$BUILD_DATE-UNOFFICIAL-${TARGET}$(${PERSONAL} && echo "-personal" || echo "").img.xz
     #make vndk-test-sepolicy
 }
 
@@ -179,3 +159,8 @@ ELAPSEDM=$(($(($END-$START))/60))
 ELAPSEDS=$(($(($END-$START))-$ELAPSEDM*60))
 echo "Buildbot completed in $ELAPSEDM minutes and $ELAPSEDS seconds"
 echo ""
+
+( cd sas-creator; bash securize.sh $OUT/system.img; xz -c s-secure.img -T0 > ../release/$BUILD_DATE/lineage-20.0-$BUILD_DATE-UNOFFICIAL-${TARGET}$(${PERSONAL} && echo "-personal" || echo "")-secure.img.xz )
+( cd sas-creator; bash lite-adapter.sh 64 $OUT/system.img; xz -c s.img -T0 > ../release/$BUILD_DATE/lineage-20.0-$BUILD_DATE-UNOFFICIAL-${TARGET}$(${PERSONAL} && echo "-personal" || echo "")-vndklite.img.xz )
+( cd sas-creator; bash securize.sh s.img; xz -c s-secure.img -T0 > ../release/$BUILD_DATE/lineage-20.0-$BUILD_DATE-UNOFFICIAL-${TARGET}$(${PERSONAL} && echo "-personal" || echo "")-vndklite-secure.img.xz )
+
