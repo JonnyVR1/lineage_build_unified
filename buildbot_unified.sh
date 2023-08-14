@@ -71,6 +71,12 @@ prep_build() {
     repopick 342862 # [WA] Codec2: queue a empty work to HAL to wake up allocation thread
     repopick 342863 # CCodec: Use pipelineRoom only for HW decoder
     repopick 342864 # codec2: Change a Info print into Verbose
+
+    # Temporarily revert "13-firewall" changes
+    (cd frameworks/base; git revert e91d98e3327a805d1914e7fb1617f3ac081c0689^..cfd9c1e4c8ea855409db5a1ed8f84f4287a37d75 --no-edit)
+    (cd packages/apps/Settings; git revert 406607e0c16ed23d918c68f14eb4576ce411bb73 --no-edit)
+    (cd packages/modules/Connectivity; git revert 386950b4ea592f2a8e4937444955c9b91ff1f277^..1fa42c03891ba203a321b597fb5709e3a9131f0e --no-edit)
+    (cd system/netd; git revert dbf5d67951a0cd6e9b76ca2c08cf2b39ae6d708d^..5c89ab94a797fce13bf858be0f96541bf9f3bfe7 --no-edit)
 }
 
 apply_patches() {
