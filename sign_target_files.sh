@@ -6,7 +6,7 @@ if [ -z "$OUTFILE" ]; then
     OUTFILE="signed-target_files.zip"
 fi
 
-sign_target_files_apks -o -d ~/.android-certs --allow_gsi_debug_sepolicy \
+sign_target_files_apks -o -d $HOME/.android-certs --allow_gsi_debug_sepolicy \
     --extra_apks AdServicesApk.apk=$HOME/.android-certs/releasekey \
     --extra_apks FederatedCompute.apk=$HOME/.android-certs/releasekey \
     --extra_apks HalfSheetUX.apk=$HOME/.android-certs/releasekey \
