@@ -1,9 +1,7 @@
 #!/bin/bash
 echo ""
 echo "LineageOS 21 Unified Buildbot"
-echo "Executing in 5 seconds - CTRL-C to exit"
 echo ""
-sleep 5
 
 if [ $# -lt 2 ]
 then
@@ -13,7 +11,7 @@ then
 fi
 
 MODE=${1}
-if [ ${MODE} != "device" ] && [ ${MODE} != "treble" ]
+if [ ${MODE} != "treble" ]
 then
     echo "Invalid mode - exiting"
     echo ""
@@ -23,6 +21,7 @@ fi
 NOSYNC=false
 PERSONAL=false
 SIGNABLE=true
+NOCLEAN=false
 for var in "${@:2}"
 do
     if [ ${var} == "nosync" ]
@@ -34,7 +33,15 @@ do
         PERSONAL=true
         SIGNABLE=false
     fi
+    if [ ${var} == "noclean" ]
+    then
+        NOCLEAN=true
+    fi
 done
+
+# Set the home directory to the original user's home
+export HOME=$(eval echo ~$(logname))
+
 if [ ! -d "$HOME/.android-certs" ]; then
     read -n1 -r -p $"\$HOME/.android-certs not found - CTRL-C to exit, or any other key to continue"
     echo ""
@@ -53,6 +60,7 @@ echo\
 
 START=`date +%s`
 BUILD_DATE="$(date -u +%Y%m%d)"
+mkdir -p release
 
 prep_build() {
     echo "Preparing local manifests"
@@ -61,7 +69,7 @@ prep_build() {
     echo ""
 
     echo "Syncing repos"
-    repo sync -c --force-sync --no-clone-bundle --no-tags -j$(nproc --all)
+    repo sync -c --force-sync --no-clone-bundle --no-tags -j8
     echo ""
 
     echo "Setting up build environment"
@@ -81,17 +89,9 @@ apply_patches() {
     bash ./lineage_build_unified/apply_patches.sh ./lineage_patches_unified/${1}
 }
 
-prep_device() {
-    :
-}
-
 prep_treble() {
     apply_patches patches_treble_prerequisite
     apply_patches patches_treble_td
-}
-
-finalize_device() {
-    :
 }
 
 finalize_treble() {
@@ -109,11 +109,6 @@ finalize_treble() {
     cd ../..
 }
 
-build_device() {
-    brunch ${1}
-    mv $OUT/lineage-*.zip ~/build-output/lineage-21.0-$BUILD_DATE-UNOFFICIAL-${1}$($PERSONAL && echo "-personal" || echo "").zip
-}
-
 build_treble() {
     case "${1}" in
         ("A64VN") TARGET=a64_bvN;;
@@ -125,7 +120,10 @@ build_treble() {
         (*) echo "Invalid target - exiting"; exit 1;;
     esac
     lunch lineage_${TARGET}-${aosp_target_release}-userdebug
-    make installclean
+    if [ ${NOCLEAN} = false ]
+    then
+		make installclean
+    fi
     WITH_ADB_INSECURE=true make -j$(lscpu -b -p=Core,Socket | grep -v '^#' | sort -u | wc -l) systemimage
     SIGNED=false
     if [ ${SIGNABLE} = true ] && [[ ${TARGET} == *_bg? ]]
@@ -136,7 +134,8 @@ build_treble() {
         SIGNED=true
         echo ""
     fi
-    mv $OUT/system.img ~/build-output/lineage-21.0-$BUILD_DATE-UNOFFICIAL-${TARGET}$(${PERSONAL} && echo "-personal" || echo "")$(${SIGNED} && echo "-signed" || echo "").img
+    xz -c $OUT/system.img -T0 > release/lineage-21.0-$BUILD_DATE-UNOFFICIAL-${TARGET}$(${PERSONAL} && echo "-personal" || echo "")$(${SIGNED} && echo "-signed" || echo "").img.xz
+    #mv $OUT/system.img release/lineage-21.0-$BUILD_DATE-UNOFFICIAL-${TARGET}$(${PERSONAL} && echo "-personal" || echo "")$(${SIGNED} && echo "-signed" || echo "").img
     #make vndk-test-sepolicy
 }
 
@@ -147,6 +146,7 @@ then
     echo "Setting up build environment"
     source build/envsetup.sh &> /dev/null
     source vendor/lineage/vars/aosp_target_release
+    mkdir -p ~/build-output
     echo ""
 else
     prep_build
@@ -166,7 +166,7 @@ fi
 
 for var in "${@:2}"
 do
-    if [ ${var} == "nosync" ] || [ ${var} == "personal" ]
+    if [ ${var} == "nosync" ] || [ ${var} == "personal" ] || [ ${var} == "noclean" ]
     then
         continue
     fi
